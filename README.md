@@ -2,7 +2,8 @@
 
 Автоматизированный инструмент для отправки откликов на вакансии на HeadHunter с интеллектуальной адаптацией сопроводительных писем.
 
-![Uploading image.png…]()
+<img width="488" height="288" alt="image" src="https://github.com/user-attachments/assets/fcafaddd-1ddd-4588-bd2e-383263938011" />
+
 
 
 ##  Возможности
