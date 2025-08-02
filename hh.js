@@ -136,33 +136,56 @@
 		vacancyContext = { title, id, url: url || window.location.href, searchUrl };
 	}
 
-	function returnToSearch() {
-		if (vacancyContext.searchUrl) {
-			window.location.href = vacancyContext.searchUrl;
-			return;
-		}
+	function forceReturnToSearch() {
+		return new Promise((resolve) => {
+			console.log('🔄 Принудительный возврат к поиску...');
 
-		const backLinks = [
-			document.querySelector('[data-qa="back-to-search"]'),
-			document.querySelector('a[href*="search/vacancy"]'),
-			...Array.from(document.querySelectorAll('a')).filter(
-				(link) =>
-					link.textContent.toLowerCase().includes('поиск') ||
-					link.href.includes('search/vacancy')
-			),
-		].filter(Boolean);
+			if (vacancyContext.searchUrl) {
+				console.log(
+					'📍 Принудительный переход по сохраненному URL:',
+					vacancyContext.searchUrl
+				);
+				window.location.href = vacancyContext.searchUrl;
+			} else {
+				console.log('🏠 Принудительный переход на главную поиска');
+				window.location.href = '/search/vacancy';
+			}
 
-		if (backLinks.length > 0) {
-			backLinks[0].click();
-			return;
-		}
+			setTimeout(resolve, 2000);
+		});
+	}
 
-		if (window.history.length > 1) {
-			window.history.back();
-			return;
-		}
+	function waitForSearchPage() {
+		return new Promise((resolve) => {
+			console.log('⏳ Ожидание загрузки страницы поиска...');
 
-		window.location.href = '/search/vacancy';
+			const maxAttempts = 30;
+			let attempts = 0;
+
+			const checkPage = () => {
+				attempts++;
+				const currentUrl = window.location.href;
+				console.log(`🔍 Попытка ${attempts}/${maxAttempts}: ${currentUrl}`);
+
+				if (
+					(currentUrl.includes('search/vacancy') ||
+						currentUrl.includes('vacancies')) &&
+					!currentUrl.includes('vacancy_response') &&
+					!currentUrl.includes('/vacancy/') &&
+					document.querySelectorAll(selectors.vacancyCards).length > 0
+				) {
+					console.log('✅ Страница поиска загружена успешно');
+					resolve();
+				} else if (attempts >= maxAttempts) {
+					console.log('⚠️ Timeout ожидания, принудительный переход...');
+					forceReturnToSearch().then(resolve);
+				} else {
+					setTimeout(checkPage, 1000);
+				}
+			};
+
+			setTimeout(checkPage, 500);
+		});
 	}
 
 	class VacancyAnalyzer {
@@ -294,11 +317,15 @@
 
 	let templates = {
 		coverLetter_1:
-			'Добрый день!\n\nМеня заинтересовала предложенная Вами вакансия {#vacancyName}. Ознакомившись с требованиями, считаю, что мой опыт позволяет претендовать на данную должность.\n\nГотов обсудить детали на собеседовании.\n\nС уважением.',
+			'Добрый день!\n\nМеня заинтересовала предложенная Вами вакансия {#vacancyName}. Ознакомившись с перечнем требований к кандидатам, пришел к выводу, что мой опыт работы позволяют мне претендовать на данную должность.\n\nОбладаю высоким уровнем разработки, свободно говорю по-английски. В работе ответствен, пунктуален и коммуникабелен.\n\nБуду с нетерпением ждать ответа и возможности обсудить условия работы и взаимные ожидания на собеседовании. Спасибо, что уделили время.\n\nКонтактные данные прилагаю.',
 		coverLetter_2:
-			'Здравствуйте!\n\nС интересом рассмотрел вашу вакансию {#vacancyName}.\n\nИмею опыт работы с современными технологиями и готов применить свои знания в вашей компании.\n\nБуду рад встрече!',
+			'Здравствуйте!\n\nС интересом рассмотрел вашу вакансию {#vacancyName}.\n\nИмею более 5 лет опыта в разработке, работал с современным стеком технологий. Успешно реализовал множество проектов различной сложности.\n\nВ работе ценю профессиональное развитие, интересные задачи и возможность приносить реальную пользу бизнесу. Готов к новым вызовам и уверен, что смогу быть полезен вашей команде.\n\nС удовольствием обсужу детали на собеседовании.\n\nС уважением.',
 		coverLetter_3:
-			'Добрый день!\n\nВакансия {#vacancyName} соответствует моим профессиональным целям.\n\nГотов внести вклад в развитие компании.\n\nЖду возможности обсудить сотрудничество.',
+			'Добрый день!\n\nМеня заинтересовала позиция {#vacancyName} в вашей компании.\n\nМой опыт включает разработку высоконагруженных систем, оптимизацию производительности и внедрение современных практик разработки. Владею полным циклом разработки ПО.\n\nГотов применить свои знания и навыки для решения задач вашей компании.\n\nБуду рад встрече!',
+		coverLetter_4:
+			'Приветствую!\n\nВакансия {#vacancyName} полностью соответствует моим профессиональным компетенциям и карьерным целям.\n\nВ своей работе я всегда стремлюсь к качественному результату, постоянно развиваюсь и слежу за новыми технологиями. Имею опыт работы как самостоятельно, так и в команде.\n\nУверен, что мой опыт и навыки позволят эффективно решать поставленные задачи.\n\nЖду возможности обсудить сотрудничество.',
+		coverLetter_5:
+			'Добрый день!\n\nОбращаюсь по поводу вакансии {#vacancyName}.\n\nВаше предложение привлекло меня возможностью работать с передовыми технологиями и развиваться в профессиональной среде.\n\nГотов внести свой вклад в развитие компании и с энтузиазмом взяться за новые вызовы.\n\nБлагодарю за рассмотрение!',
 	};
 
 	function loadSettings() {
@@ -321,6 +348,118 @@
 		} catch (error) {
 			console.error('Ошибка сохранения настроек:', error);
 		}
+	}
+
+	function createEditModal() {
+		const modal = document.createElement('div');
+		modal.id = 'cover-letter-edit-modal';
+		modal.style.cssText = `
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: rgba(0,0,0,0.7);
+			z-index: 10002;
+			display: none;
+			align-items: center;
+			justify-content: center;
+		`;
+
+		modal.innerHTML = `
+			<div style="background: white; border-radius: 12px; padding: 25px; width: 90%; max-width: 600px; max-height: 80%; overflow-y: auto;">
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+					<h3 style="margin: 0; color: #0059b3;">✏️ Редактирование шаблона <span id="edit-template-number"></span></h3>
+					<button id="close-edit-modal" style="background: none; border: none; font-size: 24px; cursor: pointer;">✖️</button>
+				</div>
+				
+				<div style="margin-bottom: 15px;">
+					<label style="display: block; margin-bottom: 5px; font-weight: bold;">Текст сопроводительного письма:</label>
+					<div style="font-size: 12px; color: #666; margin-bottom: 5px;">
+						💡 Используйте <code>{#vacancyName}</code> для подстановки названия вакансии<br>
+						🤖 AI автоматически адаптирует письмо под каждую вакансию
+					</div>
+					<textarea id="template-text" style="width: 100%; height: 300px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.4;" placeholder="Введите текст сопроводительного письма..."></textarea>
+				</div>
+				
+				<div style="margin-bottom: 20px;">
+					<div style="font-weight: bold; margin-bottom: 5px;">📋 Предварительный просмотр:</div>
+					<div id="template-preview" style="border: 1px solid #ddd; padding: 10px; border-radius: 4px; background: #f8f9fa; white-space: pre-wrap; min-height: 100px; font-size: 13px;"></div>
+				</div>
+				
+				<div style="display: flex; gap: 10px; justify-content: flex-end;">
+					<button id="save-template" style="background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">💾 Сохранить</button>
+					<button id="cancel-edit" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">❌ Отмена</button>
+				</div>
+			</div>
+		`;
+
+		document.body.appendChild(modal);
+
+		const textarea = modal.querySelector('#template-text');
+		const preview = modal.querySelector('#template-preview');
+
+		function updatePreview() {
+			const text = textarea.value.replace(
+				'{#vacancyName}',
+				'Frontend разработчик'
+			);
+			preview.textContent =
+				text || 'Введите текст для предварительного просмотра...';
+		}
+
+		textarea.addEventListener('input', updatePreview);
+
+		function closeModal() {
+			modal.style.display = 'none';
+		}
+
+		modal
+			.querySelector('#close-edit-modal')
+			.addEventListener('click', closeModal);
+		modal.querySelector('#cancel-edit').addEventListener('click', closeModal);
+
+		modal.addEventListener('click', (event) => {
+			if (event.target === modal) {
+				closeModal();
+			}
+		});
+
+		modal.querySelector('#save-template').addEventListener('click', () => {
+			const templateKey = modal.dataset.editingTemplate;
+			const newText = textarea.value.trim();
+
+			if (newText) {
+				templates[templateKey] = newText;
+				saveSettings();
+				updateTemplateButtons();
+				closeModal();
+			} else {
+				alert('Пожалуйста, введите текст письма');
+			}
+		});
+
+		return modal;
+	}
+
+	function openTemplateEditor(templateKey) {
+		const modal = document.getElementById('cover-letter-edit-modal');
+		const templateNumber = templateKey.replace('coverLetter_', '');
+
+		modal.dataset.editingTemplate = templateKey;
+		modal.querySelector('#edit-template-number').textContent = templateNumber;
+		modal.querySelector('#template-text').value = templates[templateKey] || '';
+
+		const updatePreview = () => {
+			const text = modal
+				.querySelector('#template-text')
+				.value.replace('{#vacancyName}', 'Frontend разработчик');
+			modal.querySelector('#template-preview').textContent =
+				text || 'Введите текст для предварительного просмотра...';
+		};
+		updatePreview();
+
+		modal.style.display = 'flex';
 	}
 
 	function setReactValue(element, value) {
@@ -468,8 +607,9 @@
 			await sleep(300);
 			finalBtn.click();
 
-			await sleep(2000);
-			returnToSearch();
+			console.log('📤 Отклик отправлен, возвращаемся к поиску...');
+			await sleep(3000);
+
 			return true;
 		}
 
@@ -477,6 +617,7 @@
 	}
 
 	async function processModal(vacancyName) {
+		console.log('📋 Обрабатываем модальное окно отклика');
 		if (CONFIG.enabled) await findAndAnswerQuestions();
 		await fillCoverLetter(selectedTemplate, vacancyName);
 		await sleep(200);
@@ -484,6 +625,7 @@
 	}
 
 	async function processResponsePage() {
+		console.log('📄 Обрабатываем страницу отклика');
 		const vacancyTitle = getVacancyTitle();
 		await sleep(1000);
 
@@ -496,6 +638,10 @@
 		await sleep(200);
 
 		const buttonClicked = await findAndClickRespondButton();
+
+		console.log('🔄 Принудительный возврат к поиску после отправки отклика...');
+		await forceReturnToSearch();
+
 		return buttonClicked;
 	}
 
@@ -535,22 +681,51 @@
 			) {
 				const searchUrl = window.location.href;
 				let processedCount = 0;
+				let consecutiveErrors = 0;
 
-				while (isRunning) {
+				while (isRunning && consecutiveErrors < 5) {
+					console.log(`🔄 Цикл обработки, попытка ${consecutiveErrors + 1}/5`);
+
+					await sleep(2000);
+
 					const vacancyCards = document.querySelectorAll(
 						selectors.vacancyCards
 					);
-					if (vacancyCards.length === 0) break;
+					console.log(
+						`🔍 Найдено вакансий на странице: ${vacancyCards.length}`
+					);
 
+					if (vacancyCards.length === 0) {
+						const nextBtn = document.querySelector(selectors.pagerNext);
+						if (nextBtn && !nextBtn.disabled) {
+							console.log('➡️ Переход на следующую страницу');
+							nextBtn.click();
+							await sleep(3000);
+							continue;
+						} else {
+							console.log('✅ Вакансии закончились');
+							break;
+						}
+					}
+
+					let foundVacancy = false;
 					for (const card of vacancyCards) {
 						if (!isRunning) break;
 
 						const respondBtn = card.querySelector(selectors.respondBtn);
+						if (
+							!respondBtn ||
+							!respondBtn.innerText?.includes('Откликнуться')
+						) {
+							continue;
+						}
+
+						foundVacancy = true;
 						const vacancyTitleElement = card.querySelector(
 							selectors.vacancyTitle
 						);
-
 						let vacancyTitle = vacancyTitleElement?.innerText || 'вакансию';
+
 						if (isSearchText(vacancyTitle) || isSystemMessage(vacancyTitle)) {
 							const vacancyLink = card.querySelector('a[href*="/vacancy/"]');
 							if (vacancyLink) vacancyTitle = vacancyLink.textContent.trim();
@@ -562,38 +737,65 @@
 								?.href.match(/\/vacancy\/(\d+)/)?.[1] || '';
 						setVacancyContext(vacancyTitle, vacancyId, '', searchUrl);
 
-						if (respondBtn && respondBtn.innerText?.includes('Откликнуться')) {
+						try {
 							processedCount++;
+							console.log(
+								`📝 [${processedCount}] Обрабатываем: ${vacancyTitle}`
+							);
+
 							card.scrollIntoView({ behavior: 'smooth', block: 'center' });
 							card.style.border = '2px solid #0059b3';
 
 							respondBtn.click();
-							await sleep(300);
+							await sleep(2000);
 
 							const isModal = document.querySelector(selectors.modalOverlay);
 							if (isModal) {
 								await processModal(vacancyTitle);
 							} else {
-								await sleep(500);
+								await sleep(1000);
 								await processResponsePage();
 							}
 
 							card.style.border = '';
-							await sleep(2000);
+							consecutiveErrors = 0;
+
+							console.log('⏳ Ожидание возврата к поиску...');
+							await waitForSearchPage();
+
+							break;
+						} catch (error) {
+							console.error('❌ Ошибка при обработке вакансии:', error);
+							consecutiveErrors++;
+							card.style.border = '';
+
+							console.log('🔄 Попытка восстановления...');
+							await forceReturnToSearch();
+							await waitForSearchPage();
+							break;
 						}
 					}
 
-					const nextBtn = document.querySelector(selectors.pagerNext);
-					if (nextBtn && !nextBtn.disabled && isRunning) {
-						nextBtn.click();
-						await sleep(800);
-					} else {
-						break;
+					if (!foundVacancy) {
+						const nextBtn = document.querySelector(selectors.pagerNext);
+						if (nextBtn && !nextBtn.disabled && isRunning) {
+							console.log(
+								'➡️ Переход на следующую страницу (нет подходящих вакансий)'
+							);
+							nextBtn.click();
+							await sleep(3000);
+							consecutiveErrors = 0;
+						} else {
+							console.log('✅ Достигнут конец списка вакансий');
+							break;
+						}
 					}
 				}
+
+				console.log(`🏁 Завершено. Обработано откликов: ${processedCount}`);
 			}
 		} catch (error) {
-			console.error('Ошибка:', error);
+			console.error('❌ Критическая ошибка:', error);
 		} finally {
 			isRunning = false;
 			button.style.backgroundColor = '#28a745';
@@ -612,17 +814,20 @@
 
 		panel.innerHTML = `
 			<div style="font-weight: bold; color: #0059b3; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-				<span>📷 MadnessBrains </span>
+				<span>📷 MadnessBrains HH Bot</span>
 				<button id="mb-minimize" style="background: none; border: none; cursor: pointer; font-size: 16px;">_</button>
 			</div>
 			
 			<div style="margin-bottom: 15px;">
 				<div style="font-weight: bold; margin-bottom: 8px; color: #333;">📝 Шаблоны писем:</div>
-				<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 8px;">
-					<button class="mb-template-btn" data-template="coverLetter_1" style="padding: 8px 4px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 11px; background: #f8f9fa;">📝 1</button>
-					<button class="mb-template-btn" data-template="coverLetter_2" style="padding: 8px 4px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 11px; background: #f8f9fa;">📄 2</button>
-					<button class="mb-template-btn" data-template="coverLetter_3" style="padding: 8px 4px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 11px; background: #f8f9fa;">📄 3</button>
+				<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin-bottom: 8px;">
+					<button class="mb-template-btn" data-template="coverLetter_1" style="padding: 6px 3px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 10px; background: #f8f9fa;">📝 1</button>
+					<button class="mb-template-btn" data-template="coverLetter_2" style="padding: 6px 3px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 10px; background: #f8f9fa;">📄 2</button>
+					<button class="mb-template-btn" data-template="coverLetter_3" style="padding: 6px 3px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 10px; background: #f8f9fa;">📄 3</button>
+					<button class="mb-template-btn" data-template="coverLetter_4" style="padding: 6px 3px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 10px; background: #f8f9fa;">📄 4</button>
+					<button class="mb-template-btn" data-template="coverLetter_5" style="padding: 6px 3px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 10px; background: #f8f9fa;">📄 5</button>
 				</div>
+				<button id="edit-templates" style="width: 100%; padding: 8px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; margin-bottom: 10px;">✏️ Редактировать шаблоны</button>
 			</div>
 			
 			<button id="mb-start-stop" style="width: 100%; padding: 12px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px;">
@@ -660,6 +865,11 @@
 			});
 		});
 
+		document.getElementById('edit-templates').addEventListener('click', () => {
+			const templateKey = selectedTemplate;
+			openTemplateEditor(templateKey);
+		});
+
 		document
 			.getElementById('mb-start-stop')
 			.addEventListener('click', startProcessing);
@@ -667,7 +877,7 @@
 	}
 
 	function updateTemplateButtons() {
-		for (let i = 1; i <= 3; i++) {
+		for (let i = 1; i <= 5; i++) {
 			const btn = document.querySelector(`[data-template="coverLetter_${i}"]`);
 			if (btn) {
 				const templateKey = `coverLetter_${i}`;
@@ -686,6 +896,7 @@
 		loadSettings();
 		await sleep(delay);
 		createPanel();
+		createEditModal();
 
 		if (window.location.href.includes('vacancy_response')) {
 			setTimeout(async () => {
