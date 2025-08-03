@@ -184,7 +184,27 @@ templates = {
 5. Отправьте в ветку (`git push origin feature/new-feature`)
 6. Создайте Pull Request
 
+## 2) Парсер на питоне
 
+##   Настройка
+Зарегистрируйте приложение на https://dev.hh.ru/admin
+Получите CLIENT_ID и CLIENT_SECRET
+Укажите REDIRECT_URI (например: https://localhost/hh-auth)
+Найдите ID вашего резюме в URL при его просмотре на HH.ru
+Отредактируйте конфигурацию в файле hh_auto_apply.py:
+Python
+
+CLIENT_ID = "YOUR_CLIENT_ID_HERE"
+CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
+REDIRECT_URI = "YOUR_REDIRECT_URI_HERE"
+RESUME_ID = "YOUR_RESUME_ID_HERE"
+
+## Запуск
+установка зависимостей
+pip install requests
+
+старт
+python "путь"
 
 Подробнее в файле [LICENSE](LICENSE).
 
