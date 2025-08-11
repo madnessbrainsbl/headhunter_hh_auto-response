@@ -7,6 +7,7 @@ from urllib.parse import urlencode, parse_qs, urlparse
 import logging
 import re
 import random
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +33,7 @@ class HHAutoApplicant:
         
         self.max_applications_per_day = 200
         self.min_delay_between_requests = 3
+        self.delay_after_429 = 60
         self.applied_today = 0
         self.applied_vacancies_file = 'applied_vacancies.json'
         self.load_applied_vacancies()
@@ -169,22 +171,40 @@ class HHAutoApplicant:
         headers['User-Agent'] = 'HH-User-Agent'
         kwargs['headers'] = headers
         
-        try:
-            response = self.session.request(method, url, timeout=10, **kwargs)
-            
-            if response.status_code == 401:
-                if self.refresh_access_token():
-                    headers['Authorization'] = f'Bearer {self.access_token}'
-                    response = self.session.request(method, url, timeout=10, **kwargs)
-                else:
-                    raise Exception("Не удалось обновить токен")
-            
-            response.raise_for_status()
-            return response
-            
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Ошибка запроса {method} {url}: {e}")
-            raise
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                response = self.session.request(method, url, timeout=10, **kwargs)
+                
+                if response.status_code == 401:
+                    if self.refresh_access_token():
+                        headers['Authorization'] = f'Bearer {self.access_token}'
+                        response = self.session.request(method, url, timeout=10, **kwargs)
+                    else:
+                        raise Exception("Не удалось обновить токен")
+                
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', self.delay_after_429))
+                    print(f"⏱️ Превышен лимит запросов. Ждем {retry_after} секунд...")
+                    time.sleep(retry_after)
+                    retry_count += 1
+                    continue
+                
+                response.raise_for_status()
+                return response
+                
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code != 429:
+                    raise
+                retry_count += 1
+                
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Ошибка запроса {method} {url}: {e}")
+                raise
+        
+        raise Exception(f"Превышено количество попыток после 429 ошибки")
 
     def check_resume_status(self):
         url = f"{self.base_url}/resumes/{self.resume_id}"
@@ -247,91 +267,137 @@ class HHAutoApplicant:
     def is_vacancy_suitable(self, vacancy):
         name = vacancy.get('name', '').lower()
         
-        keywords = []
-        exclusions = []
+        # Ключевые слова 
+        infosec_keywords = [
+            'физическ'
+        ]
         
+        # Исключения 
+        exclusions = [
+            'физическ'
+        ]
+        
+        # Проверяем исключения
         for exclusion in exclusions:
             if exclusion in name:
                 return False
         
-        if keywords:
-            for keyword in keywords:
-                if keyword in name:
-                    return True
-            return False
         
-        return True
+        for keyword in infosec_keywords:
+            if keyword in name:
+                return True
+                
+        return False
 
     def get_vacancies(self, search_params):
+        """Поиск вакансий по текст"""
         all_vacancies = []
         processed_ids = set()
         
+        
+        infosec_queries = [
+
+            "текст"
+            "текст"
+            "текст"
+            "текст"
+            "текст"
+        ]
+        
         url = f"{self.base_url}/vacancies"
         
-        params = {
-            'per_page': 50,
-            'page': 0,
-            'order_by': 'publication_time',
-            **search_params
-        }
-        
-        try:
-            response = self.make_authenticated_request('GET', url, params=params)
-            data = response.json()
-            
-            total_pages = data.get('pages', 1)
-            vacancies = data.get('items', [])
-            
-            for v in vacancies:
-                if self.is_vacancy_suitable(v):
-                    v_id = v.get('id')
-                    if v_id not in processed_ids and str(v_id) not in self.applied_vacancies:
-                        processed_ids.add(v_id)
-                        all_vacancies.append(v)
-            
-            for page in range(1, min(5, total_pages)):
-                params['page'] = page
-                response = self.make_authenticated_request('GET', url, params=params)
-                data = response.json()
-                vacancies = data.get('items', [])
+        for query in infosec_queries:
+            if len(all_vacancies) >= 500:  # Ограничиваем общее количество
+                break
                 
-                for v in vacancies:
-                    if self.is_vacancy_suitable(v):
+            print(f" Поиск вакансий: '{query}' (найдено: {len(all_vacancies)})")
+            
+            for page in range(10):  
+                params = {
+                    'text': query,
+                    'per_page': 50,
+                    'page': page,
+                    'order_by': 'publication_time',
+                    'period': 30  
+                }
+                
+                try:
+                    response = self.make_authenticated_request('GET', url, params=params)
+                    data = response.json()
+                    vacancies = data.get('items', [])
+                    
+                    if not vacancies:
+                        break
+                    
+                    added_count = 0
+                    for v in vacancies:
+                        if len(all_vacancies) >= 500:
+                            break
+                            
                         v_id = v.get('id')
-                        if v_id not in processed_ids and str(v_id) not in self.applied_vacancies:
+                        if not v_id or v_id in processed_ids or str(v_id) in self.applied_vacancies:
+                            continue
+                        
+                        if self.is_vacancy_suitable(v):
                             processed_ids.add(v_id)
                             all_vacancies.append(v)
-                
-                time.sleep(1)
-                
-        except Exception as e:
-            logging.error(f"Ошибка поиска вакансий: {e}")
+                            added_count += 1
+                    
+                    if added_count > 0:
+                        print(f"   Страница {page + 1}: добавлено {added_count}")
+                    
+                    pages_total = data.get('pages', 0)
+                    if page + 1 >= pages_total:
+                        break
+                        
+                    time.sleep(1)  # Задержка между страницами
+                    
+                except Exception as e:
+                    logging.error(f"Ошибка поиска '{query}': {e}")
+                    break
         
         return all_vacancies
 
-    def generate_cover_letter(self, vacancy_details):
+    def generate_infosec_cover_letter(self, vacancy_details):
+        """Специальное сопроводительное письмо для  вакансий"""
         position_name = vacancy_details.get('name', 'данную позицию')
         company_name = vacancy_details.get('employer', {}).get('name', 'вашей компании')
         
-        templates = [
+        infosec_templates = [
             f"""Здравствуйте!
 
-Заинтересовала вакансия "{position_name}" в {company_name}. 
+Заинтересовала позиция "{position_name}" в {company_name}.
 
-Готов применить свои навыки и опыт для решения задач вашей команды.
+Имею опыт работы в области "текст" и готов применить свои знания для "текст".
 
 С уважением!""",
 
             f"""Добрый день!
 
-Рад возможности рассмотреть позицию "{position_name}".
+Рассматриваю вакансию "{position_name}" как отличную возможность развиваться в сфере "текст".
 
-Уверен, что смогу принести пользу компании {company_name}.
+Готов внести вклад в "текст" {company_name}.
 
 Буду рад обсудить детали!""",
+
+            f"""Здравствуйте!
+
+Позиция "{position_name}" полностью соответствует моим профессиональным интересам в области "текст".
+
+Готов применить свои навыки "текст" {company_name}.
+
+Благодарю за рассмотрение!""",
+
+            f"""Добрый день!
+
+Область "текст" - моя профессиональная специализация. 
+
+Заинтересован в позиции "{position_name}" и готов обсудить, как могу помочь в  {company_name}.
+
+С уважением!""",
         ]
         
-        return random.choice(templates)
+        return random.choice(infosec_templates)
 
     def apply_to_vacancy(self, vacancy_id, cover_letter=None):
         url = f"{self.base_url}/negotiations"
@@ -342,7 +408,7 @@ class HHAutoApplicant:
         }
         
         form_data = {
-            'vacancy_id': vacancy_id,
+            'vacancy_id': str(vacancy_id),
             'resume_id': self.resume_id
         }
         
@@ -353,8 +419,12 @@ class HHAutoApplicant:
             response = self.make_authenticated_request('POST', url, data=form_data, headers=headers)
             
             if response.status_code == 201:
-                response_data = response.json()
-                application_id = response_data.get('id')
+                # Проверяем, что ответ содержит JSON
+                try:
+                    response_data = response.json()
+                    application_id = response_data.get('id', 'unknown')
+                except (json.JSONDecodeError, ValueError):
+                    application_id = 'success_no_id'
                 
                 logging.info(f"Отклик создан с ID: {application_id}")
                 self.save_applied_vacancy(vacancy_id)
@@ -365,72 +435,93 @@ class HHAutoApplicant:
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
                 try:
-                    error_data = e.response.json()
-                    errors = error_data.get('errors', [])
-                    if errors:
-                        error_type = errors[0].get('type', 'unknown')
-                        error_value = errors[0].get('value', '')
-                        
-                        if error_value == 'already_applied':
-                            return False, "already_applied", None
-                        elif error_value == 'limit_exceeded':
-                            return False, "limit_exceeded", None
-                except:
-                    pass
+                    # Проверяем, что ответ содержит JSON
+                    if e.response.headers.get('content-type', '').startswith('application/json'):
+                        error_data = e.response.json()
+                        errors = error_data.get('errors', [])
+                        if errors:
+                            error_type = errors[0].get('type', 'unknown')
+                            error_value = errors[0].get('value', '')
+                            
+                            if error_value == 'already_applied':
+                                self.save_applied_vacancy(vacancy_id)
+                                return False, "already_applied", None
+                            elif error_value == 'limit_exceeded':
+                                return False, "limit_exceeded", None
+                    else:
+                        # Ответ не JSON
+                        logging.warning(f"403 ошибка без JSON ответа для вакансии {vacancy_id}")
+                        return False, "forbidden_no_json", None
+                except (json.JSONDecodeError, ValueError):
+                    logging.warning(f"Не удалось распарсить JSON в 403 ответе для вакансии {vacancy_id}")
+                    return False, "forbidden_invalid_json", None
+                except Exception as ex:
+                    logging.error(f"Ошибка обработки 403 ответа: {ex}")
+                    return False, "forbidden_parse_error", None
+                    
                 return False, "forbidden", None
                 
             elif e.response.status_code == 400:
                 try:
-                    error_data = e.response.json()
-                    description = error_data.get('description', '')
+                    if e.response.headers.get('content-type', '').startswith('application/json'):
+                        error_data = e.response.json()
+                        description = error_data.get('description', '')
+                        
+                        if 'Daily negotiations limit is exceeded' in description:
+                            return False, "daily_limit_exceeded", None
+                    else:
+                        logging.warning(f"400 ошибка без JSON ответа для вакансии {vacancy_id}")
+                        return False, "bad_request_no_json", None
+                except (json.JSONDecodeError, ValueError):
+                    logging.warning(f"Не удалось распарсить JSON в 400 ответе для вакансии {vacancy_id}")
+                    return False, "bad_request_invalid_json", None
+                except Exception as ex:
+                    logging.error(f"Ошибка обработки 400 ответа: {ex}")
+                    return False, "bad_request_parse_error", None
                     
-                    if 'Daily negotiations limit is exceeded' in description:
-                        return False, "daily_limit_exceeded", None
-                except:
-                    pass
                 return False, "bad_request", None
             else:
                 return False, f"http_error_{e.response.status_code}", None
+                
+        except (json.JSONDecodeError, ValueError) as e:
+            logging.error(f"JSON decode error для вакансии {vacancy_id}: {str(e)}")
+            return False, "json_decode_error", None
         except Exception as e:
-            logging.error(f"Общая ошибка: {str(e)}")
+            logging.error(f"Общая ошибка для вакансии {vacancy_id}: {str(e)}")
             return False, "network_error", None
 
     def run_auto_applications(self, search_params):
-        print(f"АВТОМАТИЧЕСКИЕ ОТКЛИКИ НА HH.RU")
-        print("=" * 60)
+        print(f" АВТООТКЛИКИ НА ВАКАНСИИ")
+        print("=" * 70)
         
-        print("\nПроверяем статус резюме...")
+        print("\n🔍 Проверяем статус резюме...")
         if not self.check_resume_status():
-            print("Проблема с резюме! Отклики могут не работать.")
+            print("❌ Проблема с резюме! Отклики могут не работать.")
             return
         
-        print("\nПроверяем существующие отклики...")
+        print("\n📊 Проверяем существующие отклики...")
         total_applications = self.get_my_applications()
         
-        print(f"\nИщем вакансии по заданным параметрам...")
+        print(f"\n🛡️ Ищем вакансии ...")
         vacancies = self.get_vacancies(search_params)
         
         if not vacancies:
-            print("Подходящие вакансии не найдены")
+            print("❌ Вакансии не найдены")
             return
         
-        print(f"Найдено {len(vacancies)} подходящих вакансий")
+        print(f"\n✅ Найдено {len(vacancies)}  вакансий")
         
-        print("\nСписок вакансий для отклика:")
+        print("\n📋 Примеры найденных вакансий:")
         for i, vacancy in enumerate(vacancies[:10], 1):
             employer = vacancy.get('employer', {}).get('name', 'Неизвестно')
             area = vacancy.get('area', {}).get('name', 'Неизвестно')
-            print(f"   {i}. {vacancy.get('name', 'Без названия')} - {employer} ({area})")
+            has_external = "🔗" if vacancy.get('apply_alternate_url') else "📝"
+            print(f"   {i}. {has_external} {vacancy.get('name', 'Без названия')} - {employer} ({area})")
         
         if len(vacancies) > 10:
-            print(f"   ... и еще {len(vacancies) - 10} вакансий")
+            print(f"   ... и еще {len(vacancies) - 10}  вакансий")
         
-        confirm = input(f"\nОтправить отклики на {len(vacancies)} вакансий? (yes/no): ")
-        if confirm.lower() not in ['yes', 'y', 'да', 'д']:
-            print("Отменено")
-            return
-        
-        print(f"\nНачинаем автоматические отклики...")
+        print(f"\n🚀 Начинаем массовые отклики ...")
         
         successful_applications = 0
         processed = 0
@@ -438,7 +529,7 @@ class HHAutoApplicant:
         daily_limit_reached = False
         
         for vacancy in vacancies:
-            if daily_limit_reached:
+            if daily_limit_reached or self.applied_today >= self.max_applications_per_day:
                 break
                 
             vacancy_id = vacancy.get('id')
@@ -446,84 +537,104 @@ class HHAutoApplicant:
             employer = vacancy.get('employer', {}).get('name', 'Неизвестно')
             processed += 1
             
-            cover_letter = self.generate_cover_letter(vacancy)
+            # Используем специальное письмо 
+            cover_letter = self.generate_infosec_cover_letter(vacancy)
             
-            print(f"\n{processed}/{len(vacancies)}: {vacancy_name}")
-            print(f"Компания: {employer}")
+            print(f"\n🛡️ {processed}/{len(vacancies)}: {vacancy_name}")
+            print(f"🏢 {employer}")
             
             success, error_type, application_id = self.apply_to_vacancy(vacancy_id, cover_letter)
             
             if success:
                 successful_applications += 1
-                print(f"УСПЕШНО! ID отклика: {application_id}")
+                print(f"✅ УСПЕШНО! ID: {application_id}")
             else:
                 error_stats[error_type] = error_stats.get(error_type, 0) + 1
                 
                 error_messages = {
-                    'already_applied': 'Уже откликались на эту вакансию',
-                    'daily_limit_exceeded': 'Превышен дневной лимит откликов HH.ru',
-                    'permission_denied': 'Нет прав для отклика',
-                    'limit_exceeded': 'Превышен лимит откликов',
-                    'test_required': 'Требуется пройти тест',
-                    'resume_problem': 'Проблема с резюме',
-                    'forbidden': 'Доступ запрещен',
-                    'bad_request': 'Некорректный запрос'
+                    'already_applied': '📝 Уже откликались',
+                    'daily_limit_exceeded': '📊 Дневной лимит HH.ru',
+                    'limit_exceeded': '📊 Лимит откликов',
+                    'forbidden': '🚫 Доступ запрещен',
+                    'forbidden_no_json': '🚫 Доступ запрещен (не JSON)',
+                    'forbidden_invalid_json': '🚫 Доступ запрещен (плохой JSON)',
+                    'bad_request': '❌ Только внешний отклик',
+                    'bad_request_no_json': '❌ Плохой запрос (не JSON)',
+                    'bad_request_invalid_json': '❌ Плохой запрос (плохой JSON)',
+                    'json_decode_error': '❌ Ошибка парсинга ответа',
+                    'network_error': '🌐 Сетевая ошибка'
                 }
                 
-                error_msg = error_messages.get(error_type, f"Ошибка: {error_type}")
+                error_msg = error_messages.get(error_type, f"❌ {error_type}")
                 print(error_msg)
                 
-                if error_type == 'daily_limit_exceeded':
-                    print("\nДостигнут дневной лимит HH.ru. Попробуйте завтра.")
+                if error_type in ['daily_limit_exceeded', 'limit_exceeded']:
+                    print("\n⏸️ Достигнут лимит откликов")
                     daily_limit_reached = True
             
-            time.sleep(self.min_delay_between_requests)
+            # Задержка между запросами
+            delay = random.randint(2, 4)
+            time.sleep(delay)
         
-        print(f"\nЗАВЕРШЕНО!")
-        print(f"Обработано вакансий: {processed}")
-        print(f"Успешных откликов: {successful_applications}")
+        print(f"\n🎯 ЗАВЕРШЕНО!")
+        print(f"📊 Обработано  вакансий: {processed}")
+        print(f"✅ Успешных откликов: {successful_applications}")
+        if processed > 0:
+            print(f"📈 Процент успеха: {successful_applications/processed*100:.1f}%")
         
         if error_stats:
-            print(f"\nСтатистика ошибок:")
+            print(f"\n📋 Статистика ошибок:")
             for error_type, count in error_stats.items():
                 print(f"   {error_type}: {count}")
 
 def main():
-    CLIENT_ID = "YOUR_CLIENT_ID_HERE"
-    CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
-    REDIRECT_URI = "YOUR_REDIRECT_URI_HERE"
-    RESUME_ID = "YOUR_RESUME_ID_HERE"
+    # Получаем конфигурацию из переменных окружения или файла config.py
+    try:
+        from config import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, RESUME_ID
+        print("📁 Конфигурация загружена из config.py")
+    except ImportError:
+        # Пытаемся получить из переменных окружения
+        CLIENT_ID = os.getenv('HH_CLIENT_ID')
+        CLIENT_SECRET = os.getenv('HH_CLIENT_SECRET') 
+        REDIRECT_URI = os.getenv('HH_REDIRECT_URI', 'https://localhost/hh-auth')
+        RESUME_ID = os.getenv('HH_RESUME_ID')
+        
+        if not all([CLIENT_ID, CLIENT_SECRET, RESUME_ID]):
+            print("❌ ОШИБКА КОНФИГУРАЦИИ!")
+            print("\nСпособы настройки:")
+            print("\n1. Создайте файл config.py с содержимым:")
+            print("CLIENT_ID = 'your_client_id_here'")
+            print("CLIENT_SECRET = 'your_client_secret_here'")
+            print("REDIRECT_URI = 'https://localhost/hh-auth'")
+            print("RESUME_ID = 'your_resume_id_here'")
+            print("\n2. Или установите переменные окружения:")
+            print("export HH_CLIENT_ID='your_client_id_here'")
+            print("export HH_CLIENT_SECRET='your_client_secret_here'")
+            print("export HH_REDIRECT_URI='https://localhost/hh-auth'")
+            print("export HH_RESUME_ID='your_resume_id_here'")
+            print("\n📖 Инструкция получения данных:")
+            print("1. Зарегистрируйте приложение на https://dev.hh.ru/admin")
+            print("2. Получите CLIENT_ID и CLIENT_SECRET")
+            print("3. Укажите REDIRECT_URI в настройках приложения")
+            print("4. Найдите ID резюме в URL при его просмотре на hh.ru")
+            return
+        else:
+            print("🌍 Конфигурация загружена из переменных окружения")
     
-    search_params = {
-        'text': 'python developer',
-        'area': 1,
-        'experience': 'noExperience',
-        'employment': 'full',
-        'schedule': 'remote',
-        'period': 30,
-    }
     
-    print("HH.ru Автоматические отклики")
-    print("=" * 60)
+    search_params = {}
     
-    if CLIENT_ID == "YOUR_CLIENT_ID_HERE":
-        print("Необходимо настроить конфигурацию!")
-        print("\nИнструкция:")
-        print("1. Зарегистрируйте приложение на https://dev.hh.ru/admin")
-        print("2. Получите CLIENT_ID и CLIENT_SECRET")
-        print("3. Укажите REDIRECT_URI (например: https://localhost/hh-auth)")
-        print("4. Найдите ID вашего резюме в URL при его просмотре")
-        print("5. Заполните конфигурацию в этом файле")
-        return
+    print("HH.ru Автоотклики ")
+    print("=" * 70)
     
     try:
         applicant = HHAutoApplicant(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, RESUME_ID)
         applicant.run_auto_applications(search_params)
         
     except KeyboardInterrupt:
-        print("\nОстановлено пользователем")
+        print("\n⏹️ Остановлено пользователем")
     except Exception as e:
-        print(f"\nОшибка: {e}")
+        print(f"\n❌ Ошибка: {e}")
 
 if __name__ == "__main__":
     main()
