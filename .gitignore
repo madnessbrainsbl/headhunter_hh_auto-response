@@ -1,0 +1,33 @@
+# Secrets and local config
+hh_local_config.json
+hh_selenium_config.json
+hh_token.json
+hh_app_token.json
+*.env
+.env
+
+# Runtime data
+applied_vacancies*.json
+vacancies_cache*.json
+hh_auto_apply*.log
+hh_selenium*.log
+*.log
+
+# Browser/runtime state
+chrome_profile/
+brauser/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local/editor files
+.vscode/
+.idea/
+*.pyc
+*.pyo
+*.pyd
+
+# Backups and generated exports
+*.backup*.json
+external_vacancies.csv
