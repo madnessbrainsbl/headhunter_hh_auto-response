@@ -23,6 +23,22 @@
 - Google Chrome
 - Selenium Manager сам подберет ChromeDriver
 
+### Быстрый запуск на Windows
+
+1. Скачайте или клонируйте репозиторий.
+2. Запустите `setup.bat` для установки зависимостей.
+3. Скопируйте `hh_local_config.example.json` в `hh_local_config.json`.
+4. Заполните `HH_CLIENT_ID`, `HH_CLIENT_SECRET`, `HH_RESUME_ID`.
+5. Запустите `run_bot.bat`.
+
+Файлы запуска:
+
+- `setup.bat` - установка зависимостей.
+- `run_bot.bat` - основной запуск `python test.py`.
+- `run_selenium.bat` - прямой запуск Selenium по уже найденному `vacancies_cache.json`.
+
+### Ручная установка
+
 Установить зависимости:
 
 ```powershell
@@ -68,12 +84,24 @@ Copy-Item hh_selenium_config.example.json hh_selenium_config.json
 Основной запуск:
 
 ```powershell
+.\run_bot.bat
+```
+
+Или вручную:
+
+```powershell
 python test.py
 ```
 
 Если HH API закрывает `/negotiations`, скрипт сам запустит Selenium-режим.
 
 Запуск Selenium напрямую:
+
+```powershell
+.\run_selenium.bat
+```
+
+Или вручную:
 
 ```powershell
 python hh_selenium.py --api-cache --limit 200
@@ -115,6 +143,9 @@ pytest -q
 - `hh_selenium.py` - браузерная автоматизация откликов.
 - `hh_local_config.example.json` - пример локального конфига с HH credentials.
 - `hh_selenium_config.example.json` - пример настроек Selenium-режима.
+- `setup.bat` - установка зависимостей.
+- `run_bot.bat` - основной запуск проекта.
+- `run_selenium.bat` - запуск браузерного режима по кешу.
 - `tests/` - тесты для заголовков, кеша, фильтров, лимитов и Selenium-логики.
 
 ## Важно
